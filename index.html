@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>প্রো নেভিগেটর V3 - আল্ট্রা ম্যাক্স</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Leaflet & Routing -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Hind Siliguri', 'sans-serif'], outfit: ['Outfit', 'sans-serif'] },
+                    colors: { brand: { 50: '#f0fdf4', 400: '#4ade80', 500: '#22c55e', 600: '#16a34a' } }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; font-family: 'Hind Siliguri', sans-serif; background: #e2e8f0; }
+        #map { height: 100vh; width: 100vw; z-index: 1; }
+
+        /* প্রিমিয়াম গ্লাস প্যানেল */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 15px rgba(255,255,255,0.3) inset;
+            border-radius: 28px;
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* প্যানেল হাইড করার অ্যানিমেশন */
+        #mainPanel.hidden-panel { transform: translateX(-120%); opacity: 0; pointer-events: none; }
+        @media (max-width: 640px) {
+            #mainPanel.hidden-panel { transform: translateY(120%); }
+        }
+
+        #panelOpenBtn {
+            position: absolute; top: 20px; left: 20px; z-index: 999;
+            transform: scale(0); opacity: 0; transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        #panelOpenBtn.show { transform: scale(1); opacity: 1; }
+
+        /* ইনপুট ফিল্ড */
+        .search-input-box {
+            display: flex; align-items: center; background: rgba(241, 245, 249, 0.8);
+            border: 2px solid transparent; border-radius: 16px; padding: 12px 18px; 
+            transition: all 0.3s ease; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
+        }
+        .search-input-box:focus-within { background: #ffffff; border-color: #3b82f6; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15); transform: translateY(-1px); }
+        .search-input-box input { border: none; background: transparent; outline: none; width: 100%; font-size: 15px; color: #1e293b; font-weight: 600; }
+
+        /* ট্রাভেল মোড বাটন */
+        .tab-btn { flex: 1; text-align: center; padding: 12px; font-weight: 600; font-size: 14px; cursor: pointer; transition: 0.3s; color: #64748b; }
+        .tab-btn.active { color: #16a34a; background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        
+        .travel-mode-btn { width: 45px; height: 45px; border-radius: 14px; display: flex; justify-content: center; align-items: center; color: #64748b; background: #f1f5f9; cursor: pointer; transition: 0.3s; font-size: 18px;}
+        .travel-mode-btn.active { background: #dbeafe; color: #2563eb; box-shadow: 0 4px 10px rgba(37, 99, 235, 0.2); transform: translateY(-2px); }
+
+        /* ম্যাপ মার্কার ও অ্যানিমেশন */
+        .user-pulse-container { position: relative; width: 30px; height: 30px; display: flex; justify-content: center; align-items: center; }
+        .pulse-loc { width: 24px; height: 24px; background: #2563eb; border: 4px solid white; border-radius: 50%; box-shadow: 0 0 25px rgba(37, 99, 235, 0.9); position: relative; z-index: 2; }
+        .pulse-ring { position: absolute; width: 100%; height: 100%; border-radius: 50%; background: rgba(37, 99, 235, 0.4); animation: pulseAnim 2s infinite ease-out; z-index: 1; }
+        @keyframes pulseAnim { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(4); opacity: 0; } }
+
+        .custom-marker { display: flex; justify-content: center; align-items: flex-end; filter: drop-shadow(0 8px 6px rgba(0,0,0,0.4)); transition: transform 0.2s; cursor: grab; }
+        .custom-marker:hover { transform: scale(1.1) translateY(-5px); }
+        .marker-icon { font-size: 40px; }
+
+        /* মজাদার বাউন্সিং পিন (Custom User Pin) */
+        .bouncing-pin-container { display: flex; flex-direction: column; align-items: center; filter: drop-shadow(0 5px 5px rgba(0,0,0,0.3)); cursor: pointer; }
+        .bouncing-pin { font-size: 35px; color: #ec4899; animation: bouncePin 1s infinite alternate cubic-bezier(0.5, 0.05, 1, 0.5); }
+        .pin-shadow { width: 15px; height: 5px; background: rgba(0,0,0,0.3); border-radius: 50%; margin-top: 2px; animation: shadowScale 1s infinite alternate cubic-bezier(0.5, 0.05, 1, 0.5); }
+        @keyframes bouncePin { from { transform: translateY(0); } to { transform: translateY(-15px); } }
+        @keyframes shadowScale { from { transform: scale(1); opacity: 1; } to { transform: scale(0.5); opacity: 0.3; } }
+
+        /* লেফট প্যানেল */
+        #mainPanel { position: absolute; top: 20px; left: 20px; width: 400px; z-index: 1000; max-height: calc(100vh - 40px); display: flex; flex-direction: column; }
+        
+        /* ম্যাপ লেয়ার প্যানেল */
+        #layerPanel { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.95); width: 90%; max-width: 600px; z-index: 2000; display: none; opacity: 0; transition: all 0.3s ease; }
+        #layerPanel.show { display: block; opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        .map-style-card { border: 3px solid transparent; border-radius: 16px; overflow: hidden; cursor: pointer; transition: 0.3s; position: relative; }
+        .map-style-card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.15); }
+        .map-style-card.active { border-color: #3b82f6; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2); }
+        .map-style-card img { width: 100%; height: 100px; object-fit: cover; transition: 0.5s; }
+
+        /* রুট ডিটেইলস স্ক্রলবার */
+        #routeDetailsBox { overflow-y: auto; max-height: 35vh; scroll-behavior: smooth; }
+        #routeDetailsBox::-webkit-scrollbar { width: 6px; }
+        #routeDetailsBox::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+
+        /* ফ্লোটিং বাটনস */
+        .map-fab {
+            position: absolute; z-index: 1000; right: 20px; background: rgba(255,255,255,0.9);
+            backdrop-filter: blur(10px); width: 50px; height: 50px; border-radius: 16px; 
+            display: flex; justify-content: center; align-items: center; font-size: 22px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15); cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
+            border: 1px solid rgba(255,255,255,1); color: #334155;
+        }
+        .map-fab:hover { background: white; transform: scale(1.1) rotate(5deg); }
+        .fab-share { background: #10b981; color: white; border-color: #059669; }
+        .fab-share:hover { background: #059669; color: white; transform: scale(1.1); }
+
+        /* Toast Notification */
+        #toast {
+            position: fixed; bottom: -100px; left: 50%; transform: translateX(-50%);
+            background: #1e293b; color: white; padding: 12px 24px; border-radius: 50px;
+            font-weight: 500; font-size: 15px; z-index: 9999; box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            transition: bottom 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            display: flex; align-items: center; gap: 10px;
+        }
+        #toast.show { bottom: 30px; }
+
+        /* Leaflet Defaults */
+        .leaflet-control-attribution, .leaflet-routing-container, .leaflet-control-zoom { display: none !important; }
+
+        /* Overlay */
+        #overlay { position: fixed; top:0; left:0; width:100vw; height:100vh; background: rgba(0,0,0,0.4); z-index: 1500; backdrop-filter: blur(4px); display: none; opacity: 0; transition: 0.3s;}
+        #overlay.show { display: block; opacity: 1; }
+
+        /* Pin Modal Animation */
+        #pinModalContent { transform: scale(0.8); opacity: 0; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        #pinModal.show #pinModalContent { transform: scale(1); opacity: 1; }
+
+        @media (max-width: 640px) {
+            #mainPanel { width: calc(100% - 20px); top: auto; bottom: 20px; left: 10px; border-radius: 24px; }
+            #routeDetailsBox { max-height: 25vh; }
+            .map-fab { right: 10px; width: 45px; height: 45px; font-size: 20px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- মেইন ম্যাপ -->
+    <div id="map"></div>
+
+    <!-- ডার্ক ওভারলে -->
+    <div id="overlay" onclick="closeModals()"></div>
+
+    <!-- প্যানেল ওপেন বাটন (যখন হাইড থাকবে) -->
+    <button id="panelOpenBtn" onclick="togglePanel()" class="glass-panel px-5 py-3 text-blue-600 font-bold flex items-center gap-2 shadow-xl hover:bg-blue-50 transition">
+        <i class="fa-solid fa-compass text-xl"></i> মেনু খুলুন
+    </button>
+
+    <!-- ফ্লোটিং বাটনস (ডান দিকে) -->
+    <div class="map-fab" style="top: 20px;" id="btnLayerToggle" title="ম্যাপ স্টাইল পরিবর্তন করুন">
+        <i class="fa-solid fa-layer-group text-indigo-600"></i>
+    </div>
+    <div class="map-fab" style="top: 85px;" id="btnLocateMe" title="আমার লোকেশন">
+        <i class="fa-solid fa-location-crosshairs text-blue-600"></i>
+    </div>
+    <div class="map-fab fab-share" style="top: 150px;" onclick="shareMyLocation()" title="আমার লোকেশন শেয়ার করুন">
+        <i class="fa-solid fa-share-nodes"></i>
+    </div>
+    <div class="map-fab" style="top: 215px;" onclick="map.zoomIn()" title="জুম ইন">
+        <i class="fa-solid fa-plus"></i>
+    </div>
+    <div class="map-fab" style="top: 280px;" onclick="map.zoomOut()" title="জুম আউট">
+        <i class="fa-solid fa-minus"></i>
+    </div>
+
+    <!-- টোস্ট নোটিফিকেশন -->
+    <div id="toast"><i class="fa-solid fa-circle-info text-blue-400"></i> <span id="toastMsg">মেসেজ</span></div>
+
+    <!-- ম্যাপ স্টাইল প্যানেল -->
+    <div id="layerPanel" class="glass-panel p-6">
+        <div class="flex justify-between items-center mb-6">
+            <div>
+                <h2 class="text-2xl font-bold text-gray-800 font-outfit">ম্যাপ স্টাইল</h2>
+                <p class="text-gray-500 text-sm">আপনার পছন্দের ম্যাপ ডিজাইন নির্বাচন করুন</p>
+            </div>
+            <button onclick="closeModals()" class="w-10 h-10 rounded-full bg-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-all flex justify-center items-center text-xl shadow-sm">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div class="map-style-card active" onclick="setMapStyle('street', this)">
+                <img src="https://mt1.google.com/vt/lyrs=m&x=1&y=1&z=2" alt="Google Street">
+                <div class="p-2 text-center bg-white font-semibold text-gray-700 text-sm">Google 3D Street</div>
+            </div>
+            <div class="map-style-card" onclick="setMapStyle('satellite', this)">
+                <img src="https://mt1.google.com/vt/lyrs=s&x=1&y=1&z=2" alt="Google Satellite">
+                <div class="p-2 text-center bg-white font-semibold text-gray-700 text-sm">Satellite View</div>
+            </div>
+            <div class="map-style-card" onclick="setMapStyle('hybrid', this)">
+                <img src="https://mt1.google.com/vt/lyrs=s,h&x=1&y=1&z=2" alt="Google Hybrid">
+                <div class="p-2 text-center bg-white font-semibold text-gray-700 text-sm">Hybrid Pro</div>
+            </div>
+            <div class="map-style-card" onclick="setMapStyle('terrain', this)">
+                <img src="https://mt1.google.com/vt/lyrs=p&x=1&y=1&z=2" alt="Google Terrain">
+                <div class="p-2 text-center bg-white font-semibold text-gray-700 text-sm">Terrain / পাহাড়</div>
+            </div>
+            <div class="map-style-card" onclick="setMapStyle('dark', this)">
+                <div class="w-full h-[100px] bg-gray-900 flex justify-center items-center text-gray-700 text-3xl"><i class="fa-solid fa-moon"></i></div>
+                <div class="p-2 text-center bg-white font-semibold text-gray-700 text-sm">Dark Mode</div>
+            </div>
+            <div class="map-style-card" onclick="setMapStyle('osm', this)">
+                <div class="w-full h-[100px] bg-[#f8f4f0] flex justify-center items-center text-green-600 text-4xl"><i class="fa-solid fa-map"></i></div>
+                <div class="p-2 text-center bg-white font-semibold text-gray-700 text-sm">Classic OSM</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- কাস্টম পিন যোগ করার পপআপ (মডেল) -->
+    <div id="pinModal" class="fixed inset-0 z-[3000] hidden flex items-center justify-center">
+        <div id="pinModalContent" class="bg-white p-6 rounded-3xl w-80 shadow-2xl relative border border-gray-100">
+            <div class="absolute -top-6 left-1/2 -translate-x-1/2 w-14 h-14 bg-pink-500 rounded-full flex justify-center items-center text-white text-2xl shadow-lg border-4 border-white">
+                <i class="fa-solid fa-thumbtack"></i>
+            </div>
+            <h3 class="font-bold text-lg text-center mt-6 mb-2 text-gray-800">নিজের পিন বসান</h3>
+            <p class="text-xs text-center text-gray-500 mb-4">আপনার প্রিয় জায়গা বা নোট লিখে রাখুন</p>
+            
+            <input type="text" id="pinNameInput" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl mb-4 text-center font-semibold text-gray-700 outline-none focus:border-pink-500 focus:bg-white transition" placeholder="যেমন: চা খাওয়ার জায়গা ☕" autocomplete="off">
+            
+            <div class="flex gap-2">
+                <button onclick="saveCustomPin()" class="flex-1 bg-gradient-to-r from-pink-500 to-rose-500 text-white p-3 rounded-xl font-bold shadow-md hover:shadow-lg transition">সংরক্ষণ করুন</button>
+                <button onclick="closeModals()" class="flex-1 bg-gray-100 text-gray-600 p-3 rounded-xl font-bold hover:bg-gray-200 transition">বাতিল</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- প্রো কন্ট্রোল প্যানেল (মেইন UI) -->
+    <div id="mainPanel" class="glass-panel">
+        
+        <!-- টপ হেডার -->
+        <div class="p-5 pb-0">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex justify-center items-center text-white shadow-lg shadow-blue-500/30">
+                        <i class="fa-solid fa-route text-2xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-extrabold text-gray-800 font-outfit tracking-tight">Navi<span class="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">Max</span></h1>
+                        <p class="text-xs text-gray-500 font-bold uppercase tracking-widest">A to B Routing</p>
+                    </div>
+                </div>
+                <!-- মিনিমাইজ বাটন -->
+                <div class="flex gap-2">
+                    <button id="clearAllBtn" class="w-10 h-10 bg-gray-100 text-gray-600 rounded-full flex items-center justify-center hover:bg-red-100 hover:text-red-500 transition-colors" title="সব মুছুন">
+                        <i class="fa-solid fa-rotate-right"></i>
+                    </button>
+                    <button onclick="togglePanel()" class="w-10 h-10 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center hover:bg-blue-100 hover:text-blue-700 transition-colors shadow-sm" title="ম্যাপ বড় করে দেখুন">
+                        <i class="fa-solid fa-compress"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- ট্রাভেল মোড -->
+            <div class="flex gap-2 justify-center mb-4 bg-white/50 p-1.5 rounded-2xl border border-white">
+                <div class="travel-mode-btn active" data-mode="driving" onclick="setTravelMode('driving', this)" title="গাড়ি">
+                    <i class="fa-solid fa-car-side"></i>
+                </div>
+                <div class="travel-mode-btn" data-mode="cycling" onclick="setTravelMode('cycling', this)" title="মোটরসাইকেল/সাইকেল">
+                    <i class="fa-solid fa-motorcycle"></i>
+                </div>
+                <div class="travel-mode-btn" data-mode="foot" onclick="setTravelMode('foot', this)" title="হাঁটা">
+                    <i class="fa-solid fa-person-walking"></i>
+                </div>
+            </div>
+
+            <!-- মোড সিলেকশন ট্যাব -->
+            <div class="flex bg-gray-100/80 rounded-xl p-1 mb-4">
+                <div class="tab-btn active rounded-lg" id="tabLiveMode" onclick="switchMode('live')">
+                    <i class="fa-solid fa-location-dot mr-1"></i> লাইভ লোকেশন
+                </div>
+                <div class="tab-btn rounded-lg" id="tabCustomMode" onclick="switchMode('custom')">
+                    <i class="fa-solid fa-map-location-dot mr-1"></i> কাস্টম রুট
+                </div>
+            </div>
+        </div>
+
+        <!-- ইনপুট সেকশন -->
+        <div class="px-5 pb-5 space-y-3 relative">
+            
+            <div id="startInputContainer" class="hidden relative">
+                <div class="search-input-box">
+                    <i class="fa-solid fa-circle-play text-green-500 mr-3 text-lg"></i>
+                    <input type="text" id="startInput" placeholder="শুরুর স্থান লিখুন" autocomplete="off">
+                </div>
+                <div id="startResults" class="absolute w-full bg-white rounded-xl shadow-2xl z-50 top-full mt-2 max-h-60 overflow-y-auto hidden border border-gray-100"></div>
+            </div>
+
+            <div class="relative">
+                <div class="search-input-box">
+                    <i class="fa-solid fa-location-dot text-red-500 mr-3 text-xl"></i>
+                    <input type="text" id="destInput" placeholder="গন্তব্য স্থান (কোথায় যাবেন?)" autocomplete="off">
+                </div>
+                <div id="destResults" class="absolute w-full bg-white rounded-xl shadow-2xl z-50 top-full mt-2 max-h-60 overflow-y-auto hidden border border-gray-100"></div>
+            </div>
+
+            <button id="findRouteBtn" class="w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white py-3.5 rounded-xl font-bold transition-all shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2 text-lg">
+                <i class="fa-solid fa-diamond-turn-right"></i> রুট বের করুন
+            </button>
+        </div>
+
+        <!-- রুট ইনফরমেশন বক্স -->
+        <div id="routeInfoPanel" class="hidden flex-col bg-white/90 border-t border-gray-100 rounded-b-2xl overflow-hidden backdrop-blur-md">
+            
+            <div class="p-4 bg-gradient-to-r from-indigo-50 to-blue-50 flex items-center justify-between border-b border-indigo-100/50">
+                <div>
+                    <p class="text-[12px] font-bold text-indigo-500 uppercase tracking-widest mb-1">এস্টিমেটেড ট্রিপ</p>
+                    <div class="flex items-baseline gap-2">
+                        <span id="routeTime" class="text-3xl font-extrabold text-gray-800 font-outfit text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-blue-600">--</span>
+                        <span class="text-gray-300 font-bold text-xl">|</span>
+                        <span id="routeDist" class="text-lg font-bold text-gray-500 font-outfit">--</span>
+                    </div>
+                </div>
+                <div id="routeModeIcon" class="w-12 h-12 bg-white rounded-full flex items-center justify-center text-indigo-500 shadow-md shadow-indigo-200">
+                    <i class="fa-solid fa-car-side text-xl"></i>
+                </div>
+            </div>
+
+            <div id="routeDetailsBox" class="p-3 space-y-2">
+                <!-- Route steps generated via JS -->
+            </div>
+            
+            <div class="p-4 border-t border-gray-100 bg-white">
+                <button id="startNavBtn" class="w-full bg-black hover:bg-gray-800 text-white py-3.5 rounded-xl font-bold transition-all shadow-lg flex items-center justify-center gap-2 text-lg">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/a/aa/Google_Maps_icon_%282020%29.svg/512px-Google_Maps_icon_%282020%29.svg.png" class="w-5 h-5"> 
+                    Google Maps-এ খুলুন
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- কাস্টম কনটেক্সট মেনু (রাইট ক্লিক / লং প্রেস) -->
+    <div id="contextMenu" class="hidden absolute bg-white rounded-xl shadow-2xl border border-gray-100 py-2 z-[2000] w-52 transition-opacity">
+        <button class="w-full text-left px-4 py-2 hover:bg-green-50 text-gray-700 hover:text-green-600 font-medium text-sm flex items-center gap-2" onclick="setPointFromMenu('start')">
+            <i class="fa-solid fa-circle-play text-green-500 w-5"></i> এখান থেকে শুরু
+        </button>
+        <button class="w-full text-left px-4 py-2 hover:bg-red-50 text-gray-700 hover:text-red-600 font-medium text-sm flex items-center gap-2" onclick="setPointFromMenu('dest')">
+            <i class="fa-solid fa-location-dot text-red-500 w-5"></i> এখানে গন্তব্য
+        </button>
+        <div class="h-[1px] bg-gray-100 my-1"></div>
+        <button class="w-full text-left px-4 py-2 hover:bg-pink-50 text-gray-700 hover:text-pink-600 font-medium text-sm flex items-center gap-2" onclick="openPinModal()">
+            <i class="fa-solid fa-thumbtack text-pink-500 w-5"></i> 📌 কাস্টম পিন বসান
+        </button>
+    </div>
+
+    <script>
+        // --- Variables & State ---
+        let map, routingControl;
+        let myLat = null, myLng = null, userMarker = null;
+        let startLat = null, startLng = null, startMarker = null;
+        let destLat = null, destLng = null, destMarker = null;
+        let currentMode = 'live'; 
+        let currentTravelMode = 'driving';
+        let contextLatLng = null;
+        let customPinsArray = [];
+
+        // 6 Map Layers
+        const layers = {
+            street: L.tileLayer('http://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', { maxZoom: 20, subdomains:['mt0','mt1','mt2','mt3'] }),
+            satellite: L.tileLayer('http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', { maxZoom: 20, subdomains:['mt0','mt1','mt2','mt3'] }),
+            hybrid: L.tileLayer('http://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', { maxZoom: 20, subdomains:['mt0','mt1','mt2','mt3'] }),
+            terrain: L.tileLayer('http://{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', { maxZoom: 20, subdomains:['mt0','mt1','mt2','mt3'] }),
+            dark: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 20 }),
+            osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 })
+        };
+        let activeLayer = layers.street;
+
+        // Custom Icons
+        const startIcon = L.divIcon({ className: 'custom-marker', html: '<i class="fa-solid fa-location-dot marker-start marker-icon text-green-600"></i>', iconSize: [40, 40], iconAnchor: [20, 40] });
+        const destIcon = L.divIcon({ className: 'custom-marker', html: '<i class="fa-solid fa-location-dot marker-end marker-icon text-red-500"></i>', iconSize: [40, 40], iconAnchor: [20, 40] });
+        // Super Advanced User Icon
+        const userIconHTML = `<div class="user-pulse-container"><div class="pulse-ring"></div><div class="pulse-loc"></div></div>`;
+        const userIcon = L.divIcon({ className: '', html: userIconHTML, iconSize: [30, 30], iconAnchor: [15, 15] });
+
+        // --- Initialization ---
+        window.onload = () => {
+            map = L.map('map', { center: [23.8103, 90.4125], zoom: 7, layers: [activeLayer], zoomControl: false });
+            showToast("ম্যাপ লোড হচ্ছে...");
+
+            if (navigator.geolocation) {
+                navigator.geolocation.watchPosition(
+                    (pos) => {
+                        myLat = pos.coords.latitude;
+                        myLng = pos.coords.longitude;
+                        if(currentMode === 'live') { startLat = myLat; startLng = myLng; }
+                        
+                        if(userMarker) map.removeLayer(userMarker);
+                        userMarker = L.marker([myLat, myLng], {icon: userIcon, zIndexOffset: 1000}).addTo(map);
+                        
+                        if(!startMarker && !destMarker && !routingControl) {
+                            map.setView([myLat, myLng], 14);
+                            showToast("লাইভ লোকেশন পাওয়া গেছে!", "success");
+                        }
+                    },
+                    (err) => console.log("Location Error:", err),
+                    { enableHighAccuracy: true, maximumAge: 10000 }
+                );
+            }
+
+            // Context Menu Setup
+            map.on('contextmenu', function(e) {
+                contextLatLng = e.latlng;
+                const menu = document.getElementById('contextMenu');
+                menu.style.display = 'block';
+                // Adjust position so it doesn't go off screen
+                let x = e.containerPoint.x, y = e.containerPoint.y;
+                if (x > window.innerWidth - 200) x -= 200;
+                if (y > window.innerHeight - 150) y -= 150;
+                
+                menu.style.left = x + 'px';
+                menu.style.top = y + 'px';
+            });
+            map.on('click', () => document.getElementById('contextMenu').style.display = 'none');
+        };
+
+        // --- Utilities ---
+        function showToast(msg, type="info") {
+            const toast = document.getElementById('toast');
+            const icon = type === 'success' ? '<i class="fa-solid fa-circle-check text-green-400"></i>' : 
+                         type === 'error' ? '<i class="fa-solid fa-circle-exclamation text-red-400"></i>' : 
+                         '<i class="fa-solid fa-circle-info text-blue-400"></i>';
+            toast.innerHTML = `${icon} <span>${msg}</span>`;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        // --- Panel Hide/Show Toggle (NEW FEATURE) ---
+        let isPanelHidden = false;
+        function togglePanel() {
+            const panel = document.getElementById('mainPanel');
+            const openBtn = document.getElementById('panelOpenBtn');
+            isPanelHidden = !isPanelHidden;
+            
+            if(isPanelHidden) {
+                panel.classList.add('hidden-panel');
+                setTimeout(() => openBtn.classList.add('show'), 300);
+                showToast("ম্যাপ ফুলস্ক্রিন করা হয়েছে।", "success");
+            } else {
+                openBtn.classList.remove('show');
+                panel.classList.remove('hidden-panel');
+            }
+        }
+
+        // --- Share Location (NEW FEATURE) ---
+        function shareMyLocation() {
+            if(!myLat || !myLng) { showToast("আপনার লাইভ লোকেশন এখনও পাওয়া যায়নি!", "error"); return; }
+            const link = `https://www.google.com/maps?q=${myLat},${myLng}`;
+            
+            if (navigator.share) {
+                navigator.share({
+                    title: 'আমার লাইভ লোকেশন',
+                    text: 'আমি এখন এখানে আছি, ম্যাপে দেখতে ক্লিক করুন:',
+                    url: link,
+                }).then(() => showToast("লোকেশন শেয়ার করা হয়েছে!", "success"))
+                  .catch((err) => console.log('Share error:', err));
+            } else {
+                navigator.clipboard.writeText(link);
+                showToast("লোকেশন লিংক কপি করা হয়েছে! এখন পেস্ট করে পাঠাতে পারেন।", "success");
+            }
+        }
+
+        // --- Custom Interactive Pins (NEW FEATURE) ---
+        function openPinModal() {
+            document.getElementById('contextMenu').style.display = 'none';
+            document.getElementById('overlay').classList.add('show');
+            document.getElementById('pinModal').classList.remove('hidden');
+            setTimeout(() => document.getElementById('pinModal').classList.add('show'), 10);
+            document.getElementById('pinNameInput').focus();
+        }
+
+        function closeModals() {
+            document.getElementById('layerPanel').classList.remove('show');
+            document.getElementById('overlay').classList.remove('show');
+            document.getElementById('pinModal').classList.remove('show');
+            setTimeout(() => document.getElementById('pinModal').classList.add('hidden'), 300);
+        }
+
+        function saveCustomPin() {
+            const name = document.getElementById('pinNameInput').value || "অজানা স্থান";
+            
+            // Awesome Bouncing Pin Icon HTML
+            const pinHtml = `
+                <div class="bouncing-pin-container">
+                    <div class="bouncing-pin"><i class="fa-solid fa-location-dot"></i></div>
+                    <div class="pin-shadow"></div>
+                </div>
+            `;
+            const icon = L.divIcon({ className: '', html: pinHtml, iconSize: [40, 50], iconAnchor: [20, 50] });
+            
+            const pin = L.marker([contextLatLng.lat, contextLatLng.lng], {icon: icon, draggable: true}).addTo(map);
+            pin.bindPopup(`
+                <div class="text-center p-1">
+                    <div class="font-bold text-gray-800 text-[15px] mb-1">${name}</div>
+                    <div class="text-[10px] text-pink-500 font-bold bg-pink-50 px-2 py-0.5 rounded-full inline-block border border-pink-100">আমার কাস্টম পিন 📌</div>
+                </div>
+            `).openPopup();
+            
+            customPinsArray.push(pin);
+            document.getElementById('pinNameInput').value = '';
+            closeModals();
+            showToast(`"${name}" ম্যাপে যোগ করা হয়েছে!`, "success");
+        }
+
+        // --- Map Layers ---
+        document.getElementById('btnLayerToggle').addEventListener('click', () => {
+            document.getElementById('layerPanel').classList.add('show');
+            document.getElementById('overlay').classList.add('show');
+        });
+        function setMapStyle(styleName, element) {
+            map.removeLayer(activeLayer);
+            activeLayer = layers[styleName];
+            map.addLayer(activeLayer);
+            
+            document.querySelectorAll('.map-style-card').forEach(el => el.classList.remove('active'));
+            element.classList.add('active');
+            showToast("ম্যাপ স্টাইল আপডেট করা হয়েছে");
+            setTimeout(closeModals, 300);
+        }
+
+        // --- Standard UI Interactions ---
+        function switchMode(mode) {
+            currentMode = mode;
+            document.getElementById('tabLiveMode').classList.toggle('active', mode === 'live');
+            document.getElementById('tabCustomMode').classList.toggle('active', mode === 'custom');
+            
+            if(mode === 'custom') {
+                document.getElementById('startInputContainer').classList.remove('hidden');
+                document.getElementById('startInput').value = '';
+                startLat = null; startLng = null;
+                if(startMarker) map.removeLayer(startMarker);
+            } else {
+                document.getElementById('startInputContainer').classList.add('hidden');
+                startLat = myLat; startLng = myLng; 
+                if(startMarker) map.removeLayer(startMarker);
+                if(myLat) map.flyTo([myLat, myLng], 14);
+            }
+            clearRoute();
+        }
+
+        function setTravelMode(mode, el) {
+            currentTravelMode = mode;
+            document.querySelectorAll('.travel-mode-btn').forEach(btn => btn.classList.remove('active'));
+            el.classList.add('active');
+            
+            const iconClass = mode === 'driving' ? 'fa-car-side' : mode === 'cycling' ? 'fa-motorcycle' : 'fa-person-walking';
+            document.getElementById('routeModeIcon').innerHTML = `<i class="fa-solid ${iconClass} text-xl"></i>`;
+            
+            if(routingControl) document.getElementById('findRouteBtn').click();
+        }
+
+        function setPointFromMenu(type) {
+            document.getElementById('contextMenu').style.display = 'none';
+            if(type === 'start') {
+                if(currentMode === 'live') switchMode('custom');
+                setLocation('start', contextLatLng.lat, contextLatLng.lng, "নির্বাচিত স্থান");
+                document.getElementById('startInput').value = `${contextLatLng.lat.toFixed(4)}, ${contextLatLng.lng.toFixed(4)}`;
+            } else {
+                setLocation('dest', contextLatLng.lat, contextLatLng.lng, "নির্বাচিত গন্তব্য");
+                document.getElementById('destInput').value = `${contextLatLng.lat.toFixed(4)}, ${contextLatLng.lng.toFixed(4)}`;
+            }
+            if(startLat && destLat) document.getElementById('findRouteBtn').click();
+        }
+
+        // --- Search System ---
+        function setupSearch(inputId, resultsId, type) {
+            const input = document.getElementById(inputId);
+            const results = document.getElementById(resultsId);
+            let timeout;
+
+            input.addEventListener('input', (e) => {
+                clearTimeout(timeout);
+                const query = e.target.value;
+                if(query.length < 3) { results.classList.add('hidden'); return; }
+
+                timeout = setTimeout(async () => {
+                    results.innerHTML = '<div class="p-4 text-center text-gray-500 font-medium"><i class="fa-solid fa-spinner fa-spin text-blue-500"></i> খোঁজা হচ্ছে...</div>';
+                    results.classList.remove('hidden');
+
+                    try {
+                        const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&accept-language=bn`);
+                        const data = await res.json();
+                        results.innerHTML = '';
+                        if(data.length === 0) { results.innerHTML = '<div class="p-4 text-center text-red-500">কিছু পাওয়া যায়নি।</div>'; return; }
+
+                        data.forEach(place => {
+                            const div = document.createElement('div');
+                            div.className = "p-3 hover:bg-blue-50 cursor-pointer border-b border-gray-50 flex items-center gap-3 transition-colors";
+                            div.innerHTML = `<div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shrink-0"><i class="fa-solid fa-map-pin"></i></div>
+                                <div><p class="text-sm font-bold text-gray-800 line-clamp-1">${place.name}</p><p class="text-[11px] text-gray-500 line-clamp-1">${place.display_name}</p></div>`;
+                            div.onclick = () => {
+                                input.value = place.name;
+                                results.classList.add('hidden');
+                                setLocation(type, parseFloat(place.lat), parseFloat(place.lon), place.name);
+                            };
+                            results.appendChild(div);
+                        });
+                    } catch(e) { results.innerHTML = '<div class="p-3 text-center text-red-500 text-sm">সার্ভার সমস্যা!</div>'; }
+                }, 800);
+            });
+            document.addEventListener('click', (e) => { if(!input.contains(e.target) && !results.contains(e.target)) results.classList.add('hidden'); });
+        }
+
+        setupSearch('startInput', 'startResults', 'start');
+        setupSearch('destInput', 'destResults', 'dest');
+
+        // --- Marker Drop ---
+        function setLocation(type, lat, lng, name) {
+            if(type === 'start') {
+                startLat = lat; startLng = lng;
+                if(startMarker) map.removeLayer(startMarker);
+                startMarker = L.marker([lat, lng], {icon: startIcon, draggable: true}).addTo(map);
+                startMarker.on('dragend', function(e) { const pos = e.target.getLatLng(); startLat = pos.lat; startLng = pos.lng; document.getElementById('startInput').value = "পিন করা স্থান"; if(destLat) document.getElementById('findRouteBtn').click(); });
+                map.flyTo([lat, lng], 15, {duration: 1.5});
+            } else {
+                destLat = lat; destLng = lng;
+                if(destMarker) map.removeLayer(destMarker);
+                destMarker = L.marker([lat, lng], {icon: destIcon, draggable: true}).addTo(map);
+                destMarker.on('dragend', function(e) { const pos = e.target.getLatLng(); destLat = pos.lat; destLng = pos.lng; document.getElementById('destInput').value = "পিন করা গন্তব্য"; if(startLat) document.getElementById('findRouteBtn').click(); });
+                map.flyTo([lat, lng], 15, {duration: 1.5});
+            }
+        }
+
+        // --- Routing Engine ---
+        document.getElementById('findRouteBtn').addEventListener('click', () => {
+            if(currentMode === 'live' && !myLat) { showToast("লাইভ লোকেশন পাওয়া যায়নি!", "error"); return; }
+            if(currentMode === 'custom' && (!startLat || !startLng)) { showToast("শুরুর স্থান নির্বাচন করুন!", "error"); return; }
+            if(!destLat || !destLng) { showToast("গন্তব্য স্থান নির্বাচন করুন!", "error"); return; }
+
+            const btn = document.getElementById('findRouteBtn');
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> রুট তৈরি হচ্ছে...';
+            btn.classList.add('opacity-80');
+            
+            if(routingControl) map.removeControl(routingControl);
+
+            let profile = currentTravelMode === 'foot' ? 'walking' : currentTravelMode; 
+
+            routingControl = L.Routing.control({
+                waypoints: [ L.latLng(startLat, startLng), L.latLng(destLat, destLng) ],
+                router: L.Routing.osrmv1({ serviceUrl: `https://router.project-osrm.org/route/v1` }),
+                profile: profile,
+                lineOptions: { styles: [{ color: '#ffffff', weight: 10, opacity: 0.8 }, { color: currentTravelMode === 'driving' ? '#4f46e5' : currentTravelMode === 'cycling' ? '#0ea5e9' : '#10b981', weight: 6, opacity: 1 }] },
+                createMarker: function() { return null; },
+                show: false, fitSelectedRoutes: true
+            }).addTo(map);
+
+            routingControl.on('routesfound', function(e) {
+                const summary = e.routes[0].summary;
+                document.getElementById('routeDist').innerText = (summary.totalDistance / 1000).toFixed(1) + " km";
+                
+                const timeMin = Math.round(summary.totalTime / 60);
+                document.getElementById('routeTime').innerHTML = timeMin > 60 ? `<span class="text-xl">${Math.floor(timeMin/60)}</span>h <span class="text-xl">${timeMin%60}</span>m` : `<span class="text-xl">${timeMin}</span> min`;
+                
+                const detailsBox = document.getElementById('routeDetailsBox');
+                detailsBox.innerHTML = '';
+                
+                e.routes[0].instructions.forEach((inst, index) => {
+                    if(index === 0 || index === e.routes[0].instructions.length - 1) return;
+                    
+                    let icon = 'fa-arrow-up text-indigo-500', bg = 'bg-indigo-50';
+                    if(inst.type === 'Left' || inst.modifier === 'Left') { icon = 'fa-arrow-turn-left text-orange-500'; bg = 'bg-orange-50'; }
+                    if(inst.type === 'Right' || inst.modifier === 'Right') { icon = 'fa-arrow-turn-right text-green-500'; bg = 'bg-green-50'; }
+                    
+                    let stepDist = inst.distance > 1000 ? (inst.distance/1000).toFixed(1) + ' km' : Math.round(inst.distance) + ' m';
+                    
+                    const stepDiv = document.createElement('div');
+                    stepDiv.className = `flex items-center gap-4 p-3 ${bg} rounded-xl border border-white/50`;
+                    stepDiv.innerHTML = `<div class="w-10 h-10 bg-white rounded-full flex justify-center items-center shadow-sm shrink-0"><i class="fa-solid ${icon} text-lg"></i></div>
+                        <div class="flex-1"><p class="text-[14px] font-semibold text-gray-800 leading-snug">${inst.text}</p><p class="text-[12px] font-bold text-gray-500 mt-1">${stepDist}</p></div>`;
+                    detailsBox.appendChild(stepDiv);
+                });
+
+                document.getElementById('routeInfoPanel').classList.remove('hidden'); document.getElementById('routeInfoPanel').classList.add('flex');
+                btn.innerHTML = '<i class="fa-solid fa-check-double"></i> রুট সম্পন্ন';
+                btn.classList.remove('opacity-80'); btn.classList.add('from-green-500', 'to-emerald-600');
+                
+                setTimeout(() => { btn.innerHTML = '<i class="fa-solid fa-rotate"></i> রুট রিফ্রেশ করুন'; btn.classList.remove('from-green-500', 'to-emerald-600'); }, 2500);
+                showToast("সফলভাবে রুট পাওয়া গেছে!", "success");
+            });
+
+            routingControl.on('routingerror', function() {
+                showToast("দুঃখিত! এই পথে রুট পাওয়া যায়নি।", "error");
+                btn.innerHTML = '<i class="fa-solid fa-diamond-turn-right"></i> রুট বের করুন';
+                btn.classList.remove('opacity-80');
+            });
+        });
+
+        // --- Clear All ---
+        document.getElementById('clearAllBtn').addEventListener('click', () => {
+            clearRoute();
+            document.getElementById('destInput').value = '';
+            if(currentMode === 'custom') { document.getElementById('startInput').value = ''; startLat = null; startLng = null; }
+            destLat = null; destLng = null;
+            if(startMarker) map.removeLayer(startMarker);
+            if(destMarker) map.removeLayer(destMarker);
+            
+            // Clear custom pins
+            customPinsArray.forEach(pin => map.removeLayer(pin));
+            customPinsArray = [];
+            
+            if(myLat) map.flyTo([myLat, myLng], 14, {duration: 1.5});
+            showToast("সব ডাটা রিসেট করা হয়েছে");
+        });
+
+        function clearRoute() {
+            if(routingControl) map.removeControl(routingControl);
+            document.getElementById('routeInfoPanel').classList.add('hidden'); document.getElementById('routeInfoPanel').classList.remove('flex');
+            document.getElementById('findRouteBtn').innerHTML = '<i class="fa-solid fa-diamond-turn-right"></i> রুট বের করুন';
+        }
+
+        // Live Google Maps Nav
+        document.getElementById('startNavBtn').addEventListener('click', () => {
+            let mode = currentTravelMode === 'cycling' ? 'bicycling' : currentTravelMode === 'foot' ? 'walking' : 'driving';
+            window.open(`https://www.google.com/maps/dir/?api=1&origin=${startLat},${startLng}&destination=${destLat},${destLng}&travelmode=${mode}`, '_blank');
+        });
+
+        // Locate Me
+        document.getElementById('btnLocateMe').addEventListener('click', () => {
+            if(myLat && myLng) map.flyTo([myLat, myLng], 16, {duration: 1.5});
+            else showToast("লোকেশন কানেক্ট হচ্ছে...", "info");
+        });
+
+    </script>
+</body>
+</html>
